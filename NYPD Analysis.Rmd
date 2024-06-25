@@ -1,0 +1,148 @@
+---
+title: "NYPD Report"
+output: pdf_document
+date: "2023-10-19"
+---
+
+This report will investigate the crimes per burough. At first it will look at crimes per borough and then go into deeper analysis. Then there is a predictive model for future crimes commited.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+library(forecast)
+library(tidyr)
+library(tibble)
+
+```
+
+Importing data
+
+```{r}
+ nypdcsv <- 'https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD'
+ nypddata <- read_csv(nypdcsv)
+```
+
+Removing unneccessary columns and changing to date datatype
+
+```{r}
+ nypddata <- nypddata %>%
+     select(-c(INCIDENT_KEY, JURISDICTION_CODE, X_COORD_CD, Y_COORD_CD, Latitude, Longitude, STATISTICAL_MURDER_FLAG, Lon_Lat))
+
+nypddata <- nypddata %>%
+  mutate(OCCUR_DATE = as.Date(OCCUR_DATE, format = "%m/%d/%Y")) 
+```
+
+
+
+
+
+
+
+Visualizing Crime Rate by Borough
+
+```{r}
+
+
+nypddata %>%
+  group_by(BORO) %>%
+  summarise(Crime_Count = n()) %>%
+  ggplot(aes(x = BORO, y = Crime_Count)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  theme_minimal() +
+  labs(title = "Number of Crimes by Borough",
+       x = "Borough",
+       y = "Number of Crimes")
+
+```
+Potential Biases: 
+
+- Population Bias: Just presenting raw crime numbers by borough doesn't consider the population of each borough. A borough with a larger population might naturally have a higher number of crimes even if the per-capita crime rate is low. A better metric could be crimes per 100,000 residents.
+
+- Time Frame: The data covers multiple years. If there were significant demographic, economic, or policy changes over time, the data could be skewed. It's better to normalize or segregate data year-by-year or over specific periods.
+
+- Reporting Bias: Some crimes might go unreported, and the reporting rate might vary between boroughs. Areas with better policing or more community trust might have higher reporting, leading to seemingly higher crime rates.
+
+
+
+
+
+
+
+
+
+Further Analysis:
+
+- showing crime rate based on the year over longer trends
+
+```{r}
+
+
+aggregated_data <- nypddata %>%
+  group_by(OCCUR_DATE, BORO) %>%
+  summarise(Crime_Count = n()) %>%
+  arrange(OCCUR_DATE)
+
+
+ggplot(aggregated_data, aes(x = OCCUR_DATE, y = Crime_Count, color = BORO)) +
+  geom_smooth(se = FALSE) +  
+  theme_minimal() +
+  labs(title = "Crime Rate Over Time by Borough",
+       x = "Date",
+       y = "Number of Crimes",
+       color = "Borough") +
+  theme(legend.position = "top")
+
+ 
+```
+
+
+
+
+
+- Creating a model to predict the crime rate for the next 12 months
+
+```{r}
+
+monthly_crime <- nypddata %>%
+  group_by(Month = floor_date(OCCUR_DATE, "month")) %>%
+  summarize(Total_Crimes = n())
+
+train_data <- monthly_crime[1:(nrow(monthly_crime)-12), ]
+test_data <- monthly_crime[(nrow(monthly_crime)-11):nrow(monthly_crime), ]
+
+model <- lm(Total_Crimes ~ Month, data = train_data)
+
+dates_for_prediction <- seq(max(train_data$Month) + months(1), by="month", length.out=12)
+predicted_values <- predict(model, newdata = data.frame(Month = dates_for_prediction))
+
+predictions_df <- data.frame(Month = dates_for_prediction, Total_Crimes = predicted_values, Type = "Predicted")
+monthly_crime$Type <- "Actual"
+combined_data <- rbind(monthly_crime, predictions_df)
+
+
+ggplot(combined_data, aes(x = Month, y = Total_Crimes, color = Type)) +
+  geom_line(aes(group = Type)) +
+  geom_point() +
+  labs(title = "Monthly Crime Rate Prediction", x = "Date", y = "Total Crimes") +
+  scale_color_manual(values = c("blue", "red")) +
+  theme_minimal()
+
+```
+
+
+
+
+
+Conclusion
+
+The analysis of the NYPD crime data sheds light on several key points pertaining to crime rates across various boroughs of New York City:
+
+Crime Distribution by Borough: The initial visualization of the crime rate by borough shows a variance in the number of reported crimes across different boroughs. However, it's essential to consider factors like population and reporting rates to make a more accurate interpretation of this data. For instance, boroughs with larger populations may inherently report more crimes.
+
+Trends Over Time: When examining the crime rate trended over time, we observe that the crime patterns change across different boroughs. Some boroughs might see a consistent rise or fall, while others might experience fluctuations. This time-based insight can help authorities identify any long-term patterns or sudden spikes and dips in crime rates, possibly in response to policy changes or significant city events.
+
+Predictive Analysis: The forecasting model predicts crime rates for the subsequent 12 months. While this prediction provides a guideline for what to expect, it's crucial to note that such models are based on historical data and don't consider unforeseen future events or changes in policies. Therefore, while the predictions are a planning tool, they should be taken with a grain of caution.
+
